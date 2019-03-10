@@ -17,13 +17,17 @@ def Mongo(**kwargs):
 class BufferedMongoLog(MemoryHandler):
     """Buffered logging handler to send logging messages to a Mongo database.
 
-        Note:
-            The buffer is flushed when it gets to its full capacity or when an important
-            log message is emitted. Flushing implies establishing a new connection
-            to a Mongo database, inserting all buffered logs, closing the connection
-            and deleting the inserted messages.
+        The buffer is flushed when it gets to its full capacity or when an important
+        log message is emitted. Flushing implies establishing a new connection
+        to a Mongo database, inserting all buffered logs, closing the connection
+        and deleting the inserted messages.
 
-            This handler is suitable for low-medium frequency logging.
+        This handler is suitable for low-medium frequency logging.
+
+        Note:
+            There are a few exceptions to pay some attention that might occur
+            during connection, create and insert operations. Check
+            http://api.mongodb.com/python/current/api/pymongo/errors.html
 
         Note:
             This handler inserts a new document for each logging message into the collection.

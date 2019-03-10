@@ -16,16 +16,20 @@ def Mongo(**kwargs):
 class SimpleMongoLog(logging.Handler):
     """Simple logging handler to send logging message to a Mongo database.
 
-        Note:
-            For each individual message, a new connection is established,
-            he message is inserted and the connection is closed.
-               - Be aware that connection establishment is a blocking operations,
-                    which means that the execution incurs in a significant overhead.
-                    Such overhead is unacceptable in high frequency logging.
-               - Closing the connection after message insertion frees database
-                    connection congestion.
+        For each individual message, a new connection is established,
+        he message is inserted and the connection is closed.
+           - Be aware that connection establishment is a blocking operations,
+                which means that the execution incurs in a significant overhead.
+                Such overhead is unacceptable in high frequency logging.
+           - Closing the connection after message insertion frees database
+                connection congestion.
 
-            This handler is recommended for low frequency logging.
+        This handler is recommended for low frequency logging.
+
+        Note:
+            There are a few exceptions to pay some attention that might occur
+            during connection, create and insert operations. Check
+            http://api.mongodb.com/python/current/api/pymongo/errors.html
 
         Note:
             This handler inserts a new document for each logging message into
