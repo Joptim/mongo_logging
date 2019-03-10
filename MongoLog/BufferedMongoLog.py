@@ -7,7 +7,6 @@ from pymongo import MongoClient
 
 @contextmanager
 def Mongo(**kwargs):
-
     client = MongoClient(**kwargs)
     try:
         yield client
@@ -77,9 +76,6 @@ class BufferedMongoLog(MemoryHandler):
 
     def flush(self):
         """Insert all buffered records into the mongo collection"""
-
-        import time
-        time.sleep(1)
 
         self.acquire()
         try:

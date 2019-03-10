@@ -6,7 +6,6 @@ from pymongo import MongoClient
 
 @contextmanager
 def Mongo(**kwargs):
-
     client = MongoClient(**kwargs)
     try:
         yield client
