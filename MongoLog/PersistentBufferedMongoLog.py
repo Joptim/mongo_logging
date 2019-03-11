@@ -1,28 +1,20 @@
 import logging
 from logging.handlers import MemoryHandler
-from contextlib import contextmanager
 from datetime import datetime
+import pymongo
 from pymongo import MongoClient
 
 
-@contextmanager
-def Mongo(**kwargs):
-    client = MongoClient(**kwargs)
-    try:
-        yield client
-    finally:
-        client.close()
-
-
-class BufferedMongoLog(MemoryHandler):
+class PersistentBufferedMongoLog(MemoryHandler):
     """Buffered logging handler to send logging messages to a Mongo database.
 
-        The buffer is flushed when it gets to its full capacity or when an important
-        log message is emitted. Flushing implies establishing a new connection
-        to a Mongo database, inserting all buffered logs, closing the connection
+        The client connects to a Mongo database at instance initialisation and
+        remains connected until the execution finishes. Every new log message
+        is buffered until the buffer gets to full capacity or when an important
+        log message is emitted. Flushing implies inserting all buffered logs
         and deleting the inserted messages.
 
-        This handler is suitable for low-medium frequency logging.
+        This handler is suitable for medium-high frequency logging.
 
         Note:
             Some attention should be paid to some exceptions that might
@@ -59,12 +51,20 @@ class BufferedMongoLog(MemoryHandler):
 
         MemoryHandler.__init__(self, capacity, flushLevel=flushLevel)
 
+        self.client = None
         self.database = database
         self.collection = collection
         self.kwargs = kwargs
 
+        self._connect(**kwargs)
+
         if create_collection:
             self._create_collection(collection_kwargs, **kwargs)
+
+    def _connect(self, **kwargs):
+        """Connect to a Mongo database."""
+
+        self.client = MongoClient(**kwargs)
 
     def _create_collection(self, collection_kwargs, **kwargs):
         """Creates a new collection with the arguments specified.
@@ -74,10 +74,9 @@ class BufferedMongoLog(MemoryHandler):
         """
 
         try:
-            with Mongo(**kwargs) as mongo:
-                db = mongo[self.database]
-                if self.collection not in db.list_collection_names():
-                    db.create_collection(name=self.collection, **collection_kwargs)
+            db = self.client[self.database]
+            if self.collection not in db.list_collection_names():
+                db.create_collection(name=self.collection, **collection_kwargs)
         except pymongo.errors.ConnectionFailure as cf:
             # Handle the exception here
             pass
@@ -99,23 +98,22 @@ class BufferedMongoLog(MemoryHandler):
 
             buffer_len = len(self.buffer)
 
-            with Mongo(**self.kwargs) as mongo:
-                mongo[self.database][self.collection].insert_many([{
-                    'datetime': datetime.utcfromtimestamp(record.created),
-                    'processName': record.processName,
-                    'processId': record.process,
-                    'threadName': record.threadName,
-                    'threadId': record.thread,
-                    'pathname': record.pathname,
-                    'filename': record.filename,
-                    'module': record.module,
-                    'funcName': record.funcName,
-                    'lineno': record.lineno,
-                    'msg': record.msg,
-                    'levelname': record.levelname,
-                    'levelno': record.levelno,
-                    # 'funcargs': record.args,
-                } for record in self.buffer[:buffer_len]])
+            self.client[self.database][self.collection].insert_many([{
+                'datetime': datetime.utcfromtimestamp(record.created),
+                'processName': record.processName,
+                'processId': record.process,
+                'threadName': record.threadName,
+                'threadId': record.thread,
+                'pathname': record.pathname,
+                'filename': record.filename,
+                'module': record.module,
+                'funcName': record.funcName,
+                'lineno': record.lineno,
+                'msg': record.msg,
+                'levelname': record.levelname,
+                'levelno': record.levelno,
+                # 'funcargs': record.args,
+            } for record in self.buffer[:buffer_len]])
 
             self.buffer[:buffer_len] = []
 
@@ -127,3 +125,8 @@ class BufferedMongoLog(MemoryHandler):
             pass
         finally:
             self.release()
+
+    def close(self):
+        """Close client connection."""
+
+        self.client.close()
