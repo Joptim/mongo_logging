@@ -25,8 +25,8 @@ class BufferedMongoLog(MemoryHandler):
         This handler is suitable for low-medium frequency logging.
 
         Note:
-            There are a few exceptions to pay some attention that might occur
-            during connection, create and insert operations. Check
+            Some attention should be paid to some exceptions that might
+            occur during connection, create and insert operations. Check
             http://api.mongodb.com/python/current/api/pymongo/errors.html
 
         Note:
@@ -73,13 +73,17 @@ class BufferedMongoLog(MemoryHandler):
             then no action is performed on the database.
         """
 
-        with Mongo(**kwargs) as mongo:
-            db = mongo[self.database]
-            if self.collection not in db.list_collection_names():
-                db.create_collection(name=self.collection, **collection_kwargs)
+        try:
+            with Mongo(**kwargs) as mongo:
+                db = mongo[self.database]
+                if self.collection not in db.list_collection_names():
+                    db.create_collection(name=self.collection, **collection_kwargs)
+        except pymongo.errors.ConnectionFailure as cf:
+            # Handle the exception here
+            pass
 
     def flush(self):
-        """Insert all buffered records into the mongo collection"""
+        """Insert all buffered records into the Mongo collection."""
 
         self.acquire()
         try:
@@ -107,5 +111,12 @@ class BufferedMongoLog(MemoryHandler):
                 } for record in self.buffer[:buffer_len]])
 
             self.buffer[:buffer_len] = []
+
+        except pymongo.errors.WriteError as we:
+            # Handle the exception here
+            pass
+        except pymongo.errors.ConnectionFailure as cf:
+            # Handle the exception here
+            pass
         finally:
             self.release()

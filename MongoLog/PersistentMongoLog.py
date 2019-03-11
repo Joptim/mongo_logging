@@ -1,30 +1,17 @@
 import logging
-from contextlib import contextmanager
 from datetime import datetime
+import pymongo
 from pymongo import MongoClient
 
 
-@contextmanager
-def Mongo(**kwargs):
-    client = MongoClient(**kwargs)
-    try:
-        yield client
-    finally:
-        client.close()
+class PersistentMongoLog(logging.Handler):
+    """Persistent logging handler to send logging message to a Mongo database.
 
+        The client connects to a Mongo database at instance initialisation and
+        remains connected until the execution finishes. Every new log message
+        is inserted to Mongo.
 
-class SimpleMongoLog(logging.Handler):
-    """Simple logging handler to send logging message to a Mongo database.
-
-        For each individual message, a new connection is established,
-        the message is inserted and the connection is closed.
-           - Be aware that connection establishment is a blocking operation,
-                which means that the execution incurs in a significant overhead.
-                Such overhead is unacceptable in high frequency logging.
-           - Closing the connection after message insertion frees database
-                connection congestion.
-
-        This handler is recommended for low frequency logging.
+        This handler is recommended for medium frequency logging.
 
         Note:
             Some attention should be paid to some exceptions that might
@@ -57,12 +44,20 @@ class SimpleMongoLog(logging.Handler):
         """
 
         logging.Handler.__init__(self, level)
+        self.client = None
         self.database = database
         self.collection = collection
         self.kwargs = kwargs
 
+        self._connect(**kwargs)
+
         if create_collection:
             self._create_collection(collection_kwargs, **kwargs)
+
+    def _connect(self, **kwargs):
+        """Connect to a Mongo database."""
+
+        self.client = MongoClient(**kwargs)
 
     def _create_collection(self, collection_kwargs, **kwargs):
         """Creates a new collection with the arguments specified.
@@ -72,38 +67,41 @@ class SimpleMongoLog(logging.Handler):
         """
 
         try:
-            with Mongo(**kwargs) as mongo:
-                db = mongo[self.database]
-                if self.collection not in db.list_collection_names():
-                    db.create_collection(name=self.collection, **collection_kwargs)
+            db = self.client[self.database]
+            if self.collection not in db.list_collection_names():
+                db.create_collection(name=self.collection, **collection_kwargs)
         except pymongo.errors.ConnectionFailure as cf:
             # Handle the exception here
             pass
 
     def emit(self, record):
-        """Insert the record into the Mongo collection"""
+        """Insert the record into the Mongo collection."""
 
         try:
-            with Mongo(**self.kwargs) as mongo:
-                mongo[self.database][self.collection].insert_one({
-                    'datetime': datetime.utcfromtimestamp(record.created),
-                    'processName': record.processName,
-                    'processId': record.process,
-                    'threadName': record.threadName,
-                    'threadId': record.thread,
-                    'pathname': record.pathname,
-                    'filename': record.filename,
-                    'module': record.module,
-                    'funcName': record.funcName,
-                    'lineno': record.lineno,
-                    'msg': record.msg,
-                    'levelname': record.levelname,
-                    'levelno': record.levelno,
-                    # 'funcargs': record.args,
-                })
+            self.client[self.database][self.collection].insert_one({
+                'datetime': datetime.utcfromtimestamp(record.created),
+                'processName': record.processName,
+                'processId': record.process,
+                'threadName': record.threadName,
+                'threadId': record.thread,
+                'pathname': record.pathname,
+                'filename': record.filename,
+                'module': record.module,
+                'funcName': record.funcName,
+                'lineno': record.lineno,
+                'msg': record.msg,
+                'levelname': record.levelname,
+                'levelno': record.levelno,
+                # 'funcargs': record.args,
+            })
         except pymongo.errors.WriteError as we:
             # Handle the exception here
             pass
         except pymongo.errors.ConnectionFailure as cf:
             # Handle the exception here
             pass
+
+    def close(self):
+        """Close client connection."""
+
+        self.client.close()
