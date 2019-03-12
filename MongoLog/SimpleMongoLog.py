@@ -1,6 +1,7 @@
 import logging
 from contextlib import contextmanager
 from datetime import datetime
+import pymongo
 from pymongo import MongoClient
 
 

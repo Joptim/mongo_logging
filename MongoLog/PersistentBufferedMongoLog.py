@@ -2,7 +2,7 @@ import logging
 from logging.handlers import MemoryHandler
 from datetime import datetime
 import pymongo
-from pymongo import MongoClient
+from pymongo import MongoClient, InsertOne
 
 
 class PersistentBufferedMongoLog(MemoryHandler):
@@ -84,11 +84,11 @@ class PersistentBufferedMongoLog(MemoryHandler):
     def flush(self):
         """Insert all buffered records into the Mongo collection.
 
-            Todo:
-                If an error occurs during insert_many() execution, some records
-                may have already been sent to Mongo. The exception is then catched
-                and such records are not deleted from the buffer, which means that
-                they will be resent in subsequent inserts.
+            Note:
+                Log records are inserted in chronological order into the database.
+                The first insert failure that occurs aborts the remaining insert
+                operations. All log records inserted successfully will be removed
+                from the buffer.
         """
 
         self.acquire()
@@ -96,33 +96,40 @@ class PersistentBufferedMongoLog(MemoryHandler):
             if not self.buffer:
                 return
 
-            buffer_len = len(self.buffer)
+            bulk_result = self.client[self.database][self.collection].bulk_write([
+                InsertOne({
+                    'datetime': datetime.utcfromtimestamp(record.created),
+                    'processName': record.processName,
+                    'processId': record.process,
+                    'threadName': record.threadName,
+                    'threadId': record.thread,
+                    'pathname': record.pathname,
+                    'filename': record.filename,
+                    'module': record.module,
+                    'funcName': record.funcName,
+                    'lineno': record.lineno,
+                    'msg': record.msg,
+                    'levelname': record.levelname,
+                    'levelno': record.levelno,
+                    # 'funcargs': record.args,
+                }) for record in self.buffer], ordered=True)
 
-            self.client[self.database][self.collection].insert_many([{
-                'datetime': datetime.utcfromtimestamp(record.created),
-                'processName': record.processName,
-                'processId': record.process,
-                'threadName': record.threadName,
-                'threadId': record.thread,
-                'pathname': record.pathname,
-                'filename': record.filename,
-                'module': record.module,
-                'funcName': record.funcName,
-                'lineno': record.lineno,
-                'msg': record.msg,
-                'levelname': record.levelname,
-                'levelno': record.levelno,
-                # 'funcargs': record.args,
-            } for record in self.buffer[:buffer_len]])
+            if not bulk_result.acknowledged:
+                # Handle error here.
+                pass
 
-            self.buffer[:buffer_len] = []
+            self.buffer[:bulk_result.inserted_count] = []
 
-        except pymongo.errors.WriteError as we:
+        except pymongo.errors.BulkWriteError as bwe:
             # Handle the exception here
-            pass
+            # Error details can be found in bwe._OperationFailure__details
+
+            self.buffer[:bwe.details.get('nInserted', 0)] = []
+
         except pymongo.errors.ConnectionFailure as cf:
             # Handle the exception here
             pass
+
         finally:
             self.release()
 
